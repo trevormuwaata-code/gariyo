@@ -1,5 +1,5 @@
 // Keeps the app working offline. Data is never sent anywhere; it stays in the phone's storage.
-const CACHE = 'tk-units-v1';
+const CACHE = 'tk-units-v2';
 const SHELL = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png'];
 self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL))); self.skipWaiting(); });
 self.addEventListener('activate', e => {
@@ -9,7 +9,9 @@ self.addEventListener('activate', e => {
 self.addEventListener('fetch', e => {
   if (e.request.method !== 'GET') return;
   const url = new URL(e.request.url);
-  const cacheable = url.origin === location.origin || url.hostname.endsWith('gstatic.com') || url.hostname.endsWith('googleapis.com');
+  const cacheable = url.origin === location.origin || url.hostname.endsWith('gstatic.com') || url.hostname.endsWith('googleapis.com') || url.hostname.endsWith('jsdelivr.net');
+  // never cache calls to the backend API — those must always be live
+  if (url.hostname.endsWith('supabase.co')) return;
   if (!cacheable) return;
   e.respondWith(
     fetch(e.request).then(r => {
