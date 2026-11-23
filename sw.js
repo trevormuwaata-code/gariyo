@@ -1,5 +1,5 @@
 // Keeps the app working offline. Data is never sent anywhere; it stays in the phone's storage.
-const CACHE = 'tk-units-v2';
+const CACHE = 'tk-units-v3';
 const SHELL = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png'];
 self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(SHELL))); self.skipWaiting(); });
 self.addEventListener('activate', e => {

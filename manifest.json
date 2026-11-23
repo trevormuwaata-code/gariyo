@@ -1,6 +1,7 @@
 {
-  "name": "TK UNITS",
-  "short_name": "TK UNITS",
+  "name": "Gariyo",
+  "short_name": "Gariyo",
+  "description": "Manage your car business — stock, buyers, deals and import costs.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

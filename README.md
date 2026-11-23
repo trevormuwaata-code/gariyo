@@ -1,8 +1,5 @@
-# TK UNITS
+# Gariyo
 
-Car dealer app by Motocraft (Premium Auto Imports), Kampala.
+A car-dealer management app (stock, buyers, deals, import cost calculator). Each dealer signs in; their business data stays on their own device.
 
-© 2026 Motocraft. All rights reserved. Licensed software; copying, redistribution or resale is prohibited.
-Contact: WhatsApp +256 701 083 336
-
-Data is stored only on each user's own device.
+© 2026 Gariyo. All rights reserved. Licensed software; copying, redistribution or resale is prohibited.
