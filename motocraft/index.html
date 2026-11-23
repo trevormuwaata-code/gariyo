@@ -304,7 +304,9 @@ function carCard(c){
   if(c.sellerName||c.sellerPhone) h+='<div class="s" style="margin-top:6px">Seller: '+esc([c.sellerName,c.sellerPhone].filter(Boolean).join(' · '))+'</div>';
   if(c.notes) h+='<div class="s" style="margin-top:6px">'+esc(c.notes)+'</div>';
   if(num(c.photoCount)>0) h+='<div class="s" style="margin-top:6px">📷 '+num(c.photoCount)+' photo'+(num(c.photoCount)===1?'':'s')+'</div>';
-  h+='<div class="actions"><button type="button" class="btn small" data-share="'+esc(c.id)+'">Share to WhatsApp</button><button type="button" class="btn small ghost" data-edit="cars" data-id="'+esc(c.id)+'">Edit</button>';
+  h+='<div class="actions">';
+  if(c.status!=='Sold') h+='<button type="button" class="btn small" data-share="'+esc(c.id)+'">Share to WhatsApp</button>';
+  h+='<button type="button" class="btn small ghost" data-edit="cars" data-id="'+esc(c.id)+'">Edit</button>';
   if(c.status!=='Sold') h+='<button type="button" class="btn small" data-sold="'+esc(c.id)+'">Mark sold</button>';
   else h+='<button type="button" class="btn small ghost" data-sold="'+esc(c.id)+'">Sale details</button>';
   if(c.sellerPhone){ var w=waLink(c.sellerPhone); if(w) h+='<a class="btn small wa" href="'+esc(w)+'" target="_blank" rel="noopener">WhatsApp seller</a>'; }
