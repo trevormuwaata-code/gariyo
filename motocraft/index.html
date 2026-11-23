@@ -251,6 +251,7 @@ function pad(n){ return (n<10?'0':'')+n }
 
 // ---------- no licence: this is Trevor's own app ----------
 var DAY=864e5;
+function isLocked(){ return false; }
 function guard(){ return false; }
 
 // ---------- views ----------
@@ -543,8 +544,10 @@ function submitForm(){
   var after=FORM.afterSave;
   var photos = kind==='cars' ? PHOTOS.slice() : null;
   writeDoc(kind,FORM.id,full).then(function(newId){
-    var done=function(){ closeForm(); toast('Saved'); if(after) after(newId); if(becameSold || (kind==='cars' && data.status==='Sold' && !dealForCar(newId))) openSoldSheet(newId, Object.assign({id:newId},full)); };
-    if(kind==='cars'){ PHOTOS=photos; persistPhotos(newId).then(done,done); } else done();
+    if(kind==='cars'){ PHOTOS=photos; persistPhotos(newId); } // store photos in the background; never block the save
+    closeForm(); toast('Saved');
+    if(after) after(newId);
+    if(becameSold || (kind==='cars' && data.status==='Sold' && !dealForCar(newId))) openSoldSheet(newId, Object.assign({id:newId},full));
   }).catch(handleWriteError);
 }
 function stripId(o){ var c=Object.assign({},o); delete c.id; return c; }
