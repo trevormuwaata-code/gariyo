@@ -632,7 +632,6 @@ details.rates summary {
   background: var(--bg);
   padding: 28px 22px calc(28px + env(safe-area-inset-bottom));
   flex-direction: column;
-  justify-content: center;
   align-items: center;
   display: flex;
   position: fixed;
@@ -642,6 +641,9 @@ details.rates summary {
 .authcard {
   width: 100%;
   max-width: 360px;
+  /* Centers vertically when it fits, but starts at the top (and scrolls) when the form is taller than the screen.
+     justify-content: center on the container clipped the top of long forms. */
+  margin: auto;
 }
 .authlogo {
   width: 72px;
@@ -720,6 +722,27 @@ details.rates summary {
   border: 0;
   padding: 4px;
   font-size: 13px;
+  font-weight: 600;
+}
+.authterms {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 2px 0 14px;
+  color: var(--sub);
+  font-size: 13px;
+  line-height: 1.4;
+  cursor: pointer;
+}
+.authterms input {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  margin: 1px 0 0;
+  accent-color: var(--ink);
+}
+.authterms a {
+  color: var(--accent-ink);
   font-weight: 600;
 }
 .a2hs {
@@ -984,14 +1007,41 @@ details.rates summary {
             />
           </label>
 
-          <label class="fld" id="authNameWrap" style="display: none">
-            <span>Your name or business</span>
-            <input placeholder="e.g. City Motors" id="authName" />
+          <!--
+            Sign-up order: First/Last name, Business name, Phone, Email, Location, Password,
+            Confirm password, Terms, button. The Email field above is moved between "Phone" and
+            "Location" in sign-up mode by setAuthMode() (it stays first for sign-in and reset).
+          -->
+          <div class="two" id="authNamesRow" style="display: none">
+            <label class="fld">
+              <span>First name</span>
+              <input autocapitalize="words" autocomplete="given-name" id="authFirst" />
+            </label>
+            <label class="fld">
+              <span>Last name</span>
+              <input autocapitalize="words" autocomplete="family-name" id="authLast" />
+            </label>
+          </div>
+
+          <label class="fld" id="authBizWrap" style="display: none">
+            <span>Business name</span>
+            <input
+              autocapitalize="words"
+              autocomplete="organization"
+              id="authBiz"
+              maxlength="28"
+              placeholder="e.g. City Motors"
+            />
           </label>
 
           <label class="fld" id="authPhoneWrap" style="display: none">
             <span>Phone / WhatsApp</span>
             <input placeholder="07xx xxx xxx" id="authPhone" inputmode="tel" type="tel" />
+          </label>
+
+          <label class="fld" id="authLocWrap" style="display: none">
+            <span>Location</span>
+            <input autocapitalize="words" id="authLoc" placeholder="e.g. Ntinda, Kampala" />
           </label>
 
           <label class="fld" id="authPassWrap">
@@ -1002,6 +1052,21 @@ details.rates summary {
               id="authPass"
               type="password"
             />
+          </label>
+
+          <label class="fld" id="authPass2Wrap" style="display: none">
+            <span>Confirm password</span>
+            <input
+              autocomplete="new-password"
+              id="authPass2"
+              placeholder="Type the password again"
+              type="password"
+            />
+          </label>
+
+          <label class="authterms" id="authTermsWrap" style="display: none">
+            <input id="authTerms" type="checkbox" />
+            <span>I agree to the <a id="authTermsLink" rel="noopener" target="_blank">Terms and Conditions</a></span>
           </label>
 
           <!-- Sign-in mode only: opens the reset-password screen (see setAuthMode in app script) -->
@@ -1076,6 +1141,9 @@ details.rates summary {
 
   // Support / activation WhatsApp number (international format, no +).
   var SUPPORT_WHATSAPP = "256701083336";
+
+  // Page the "Terms and Conditions" checkbox label links to on the sign-up screen. Leave empty until the page exists.
+  var TERMS_URL = "";
 
   // Car lifecycle, in the order shown in the filter chips.
   var CAR_STATUSES = ["Sourcing", "In transit", "Available", "Reserved", "Sold"];
@@ -2736,12 +2804,179 @@ details.rates summary {
   // Parsed backup file waiting for the user to confirm a restore.
   var pendingRestore = null;
 
-  // Settings sheet: account / licence, business name, backup and restore.
+  // What to show as the dealer's identity: the business name, or the email until a name is set.
+  function profileDisplayName() {
+    var name = state.biz && state.biz.name;
+    return name && "My Cars" !== name
+      ? name
+      : (currentUser && currentUser.email) || (license && license.email) || name || "";
+  }
+
+  // Location and address, stored per user on this phone. `dirty` = not yet saved to the account online.
+  function getProfile() {
+    return (
+      (currentUser && readStorage("tk_profile_" + currentUser.id, null)) || {
+        location: "",
+        address: "",
+        dirty: false,
+      }
+    );
+  }
+
+  function setProfile(profile) {
+    currentUser && writeStorage("tk_profile_" + currentUser.id, profile);
+  }
+
+  // First login on this phone: fill the profile from what was entered at sign-up (kept in the account).
+  function seedProfileFromAccount(user) {
+    var meta = user.user_metadata || {};
+    if (!readStorage("tk_profile_" + user.id, null)) {
+      writeStorage("tk_profile_" + user.id, {
+        location: meta.location || "",
+        address: meta.address || "",
+        dirty: false,
+      });
+    }
+    if (!readStorage("tk_dealerphone_" + user.id, "") && meta.phone) {
+      writeStorage("tk_dealerphone_" + user.id, meta.phone);
+    }
+    if (meta.business && (!state.biz.name || "My Cars" === state.biz.name)) {
+      state.biz.name = meta.business;
+      saveBiz();
+    }
+  }
+
+  // Copy the profile into the account's user metadata (business name and phone also reach the
+  // dealers table through syncLicense). Marks the profile dirty if offline so it is retried later.
+  function pushProfileToAccount() {
+    if (!supabaseClient || !currentUser) {
+      return Promise.resolve(false);
+    }
+    var profile = getProfile();
+    return supabaseClient.auth
+      .updateUser({
+        data: {
+          name: state.biz.name,
+          business: state.biz.name,
+          phone: getDealerPhone(),
+          location: profile.location || "",
+          address: profile.address || "",
+        },
+      })
+      .then(function (res) {
+        profile.dirty = !!res.error;
+        setProfile(profile);
+        return !res.error;
+      })
+      .catch(function () {
+        profile.dirty = true;
+        setProfile(profile);
+        return false;
+      });
+  }
+
+  // Settings: save business name, tagline, phone, location and address.
+  function saveProfile() {
+    var name = byId("bizNameIn").value.trim() || "My Cars",
+      tag = byId("bizTagIn").value.trim(),
+      phone = byId("profPhone").value.trim(),
+      loc = byId("profLoc").value.trim(),
+      address = byId("profAddr").value.trim();
+    if (phone && phone.replace(/\D/g, "").length < 9) {
+      return showToast("Enter a valid phone number.");
+    }
+    state.biz = Object.assign({}, state.biz, { name: name, tag: tag });
+    saveBiz();
+    if (currentUser) {
+      writeStorage("tk_dealerphone_" + currentUser.id, phone);
+      setProfile({ location: loc, address: address, dirty: true });
+    }
+    renderBrand();
+    byId("profName") && (byId("profName").textContent = profileDisplayName());
+    if (currentUser) {
+      syncLicense();
+      pushProfileToAccount();
+    }
+    showToast("Profile saved");
+  }
+
+  // Message line inside the change-password card (red for errors, green when ok = true).
+  function showPasswordMessage(msg, ok) {
+    var el = byId("pwErr");
+    if (el) {
+      el.textContent = msg;
+      el.classList.toggle("show", !!msg);
+      el.classList.toggle("ok", !!(msg && ok));
+    }
+  }
+
+  // Settings: change password. The current password is checked first by signing in again.
+  function changePassword() {
+    var current = byId("pwCur").value,
+      next = byId("pwNew").value,
+      again = byId("pwNew2").value,
+      email = currentUser && currentUser.email,
+      button = byId("pwSave");
+    var problem = !current
+      ? "Enter your current password."
+      : next.length < 8
+        ? "New password must be at least 8 characters."
+        : next !== again
+          ? "New passwords do not match."
+          : next === current
+            ? "New password must be different from the current one."
+            : !supabaseClient || !email
+              ? "You need to be signed in and online to change your password."
+              : "";
+    if (problem) {
+      return showPasswordMessage(problem);
+    }
+    var busy = function (on) {
+      button && ((button.disabled = on), (button.textContent = on ? "Please wait…" : "Change password"));
+    };
+    showPasswordMessage("");
+    busy(true);
+    supabaseClient.auth
+      .signInWithPassword({ email: email, password: current })
+      .then(function (res) {
+        if (res.error) {
+          return { verify: true, error: res.error };
+        }
+        return supabaseClient.auth.updateUser({ password: next }).then(function (r) {
+          return { verify: false, error: r.error };
+        });
+      })
+      .then(function (out) {
+        busy(false);
+        if (out.error) {
+          var m = out.error.message || "";
+          return showPasswordMessage(
+            out.verify
+              ? /invalid login/i.test(m)
+                ? "Your current password is wrong."
+                : m || "Couldn’t check your current password."
+              : m || "Couldn’t change the password. Try again.",
+          );
+        }
+        ["pwCur", "pwNew", "pwNew2"].forEach(function (id) {
+          byId(id) && (byId(id).value = "");
+        });
+        showPasswordMessage("Password changed.", true);
+        showToast("Password changed");
+      })
+      .catch(function () {
+        busy(false);
+        showPasswordMessage("No internet. Check your connection and try again.");
+      });
+  }
+
+  // Settings sheet: account / licence, business profile, change password, backup and restore, log out.
   function openSettings() {
     formContext = null;
     soldContext = null;
     settingsOpen = true;
     pendingRestore = null;
+    var profile = getProfile();
     var e,
       n = state.licReady ? getLicenseState() : { mode: "trial", left: 14 },
       s =
@@ -2788,11 +3023,9 @@ details.rates summary {
       '<div class="grab" aria-hidden="true"></div><div class="sheet-head"><h2>Settings</h2><button type="button" class="btn small ghost" data-close>Close</button></div><h3 style="margin-top:6px">Account</h3><div class="card"><div style="margin-bottom:10px">' +
         s +
         "</div>" +
-        (i
-          ? '<div class="s">Signed in as</div><div style="font-weight:600;margin:2px 0 8px;word-break:break-all">' +
-            escapeHtml(i) +
-            "</div>"
-          : "") +
+        '<div class="s">Business</div><div id="profName" style="font-weight:600;margin:2px 0 8px;word-break:break-all">' +
+        escapeHtml(profileDisplayName()) +
+        "</div>" +
         ("paid" !== n.mode
           ? '<p class="note" style="margin:0 0 10px">To activate or extend, contact ' +
             APP_NAME +
@@ -2812,11 +3045,17 @@ details.rates summary {
             APP_NAME +
             "</a>"
           : "") +
-        '<div style="margin-top:14px"><button type="button" class="btn small ghost" id="logoutBtn">Log out</button></div></div><h3>Business</h3><div class="card"><label class="fld"><span>Business name</span><input id="bizNameIn" value="' +
+        '</div><h3>Business profile</h3><div class="card"><label class="fld"><span>Business name</span><input id="bizNameIn" value="' +
         escapeHtml(state.biz.name) +
         '" maxlength="28"></label><label class="fld"><span>Tagline (optional)</span><input id="bizTagIn" value="' +
         escapeHtml(state.biz.tag) +
-        '" maxlength="32"></label><button type="button" class="btn small ghost" id="bizSave">Save name</button></div><h3>Backup</h3><div class="card"><p class="note" style="margin-top:0">Your cars, buyers and deals are stored only on this phone. Nobody else can see them, not even ' +
+        '" maxlength="32"></label><label class="fld"><span>Phone / WhatsApp</span><input id="profPhone" type="tel" inputmode="tel" autocomplete="tel" value="' +
+        escapeHtml(getDealerPhone()) +
+        '"></label><label class="fld"><span>Location</span><input id="profLoc" placeholder="e.g. Ntinda, Kampala" maxlength="60" value="' +
+        escapeHtml(profile.location || "") +
+        '"></label><label class="fld"><span>Address</span><textarea id="profAddr" rows="2" maxlength="200" placeholder="Street, plot number, landmark">' +
+        escapeHtml(profile.address || "") +
+        '</textarea></label><button type="button" class="btn small" id="bizSave">Save changes</button></div><h3>Change password</h3><div class="card"><div class="autherr" id="pwErr"></div><label class="fld"><span>Current password</span><input id="pwCur" type="password" autocomplete="current-password"></label><label class="fld"><span>New password</span><input id="pwNew" type="password" autocomplete="new-password" placeholder="At least 8 characters"></label><label class="fld"><span>Confirm new password</span><input id="pwNew2" type="password" autocomplete="new-password"></label><button type="button" class="btn small" id="pwSave">Change password</button></div><h3>Backup</h3><div class="card"><p class="note" style="margin-top:0">Your cars, buyers and deals are stored only on this phone. Nobody else can see them, not even ' +
         APP_NAME +
         '. If the phone is lost or reset, they are gone unless you have a backup. Back up every week and keep the file somewhere safe, like your WhatsApp “Message yourself” chat or Google Drive. Car photos are not included in the backup file.</p><p class="s">' +
         (r
@@ -2841,7 +3080,7 @@ details.rates summary {
           : "") +
         '<button type="button" class="btn small ' +
         (o ? "ghost" : "") +
-        '" id="dlBackup">Download backup</button></div><label class="fld" style="margin-top:14px"><span>Restore from a backup file</span><input type="file" id="restoreFile" accept=".json,application/json"></label><div id="restoreBox"></div></div><div class="powered">POWERED BY GARIYO</div><p class="note" style="text-align:center;margin:2px 0 0">© 2026 Gariyo. All rights reserved. Licensed software.</p>',
+        '" id="dlBackup">Download backup</button></div><label class="fld" style="margin-top:14px"><span>Restore from a backup file</span><input type="file" id="restoreFile" accept=".json,application/json"></label><div id="restoreBox"></div></div><button type="button" class="btn full ghost" id="logoutBtn">Log out</button><div class="powered">POWERED BY GARIYO</div><p class="note" style="text-align:center;margin:2px 0 0">© 2026 Gariyo. All rights reserved. Licensed software.</p>',
     );
   }
 
@@ -2928,6 +3167,11 @@ details.rates summary {
     tip && (tip.style.display = isInstalled || "reset" === authMode || "newpass" === authMode ? "none" : "");
   }
 
+  // Make "Terms and Conditions" on the sign-up screen a real link once TERMS_URL is set.
+  if (TERMS_URL) {
+    byId("authTermsLink").href = TERMS_URL;
+  }
+
   // Reveal the login form, optionally with an error message.
   function showAuthScreen(e) {
     byId("authSpin").style.display = "none";
@@ -2973,8 +3217,19 @@ details.rates summary {
       newPass = "newpass" === e;
     byId("authEmailWrap").style.display = newPass ? "none" : "";
     byId("authPassWrap").style.display = reset ? "none" : "";
-    byId("authNameWrap").style.display = signUp ? "" : "none";
+    // Sign-up shows extra fields, and Email sits between Phone and Location there
+    // (first on the other screens).
+    byId("authForm").insertBefore(
+      byId("authEmailWrap"),
+      signUp ? byId("authLocWrap") : byId("authNamesRow"),
+    );
+    byId("authNamesRow").style.display = signUp ? "" : "none";
+    byId("authBizWrap").style.display = signUp ? "" : "none";
     byId("authPhoneWrap").style.display = signUp ? "" : "none";
+    byId("authLocWrap").style.display = signUp ? "" : "none";
+    byId("authPass2Wrap").style.display = signUp ? "" : "none";
+    byId("authTermsWrap").style.display = signUp ? "" : "none";
+    byId("authPass").placeholder = signUp ? "At least 8 characters" : "At least 6 characters";
     byId("authForgotWrap").style.display = "in" === e ? "" : "none";
     updateInstallTip();
     byId("authPassLabel").textContent = newPass ? "New password" : "Password";
@@ -3060,6 +3315,117 @@ details.rates summary {
       });
   }
 
+  // Friendly text for the errors Supabase returns on sign-in / sign-up.
+  function authErrorMessage(msg) {
+    msg = String(msg || "");
+    return /invalid login/i.test(msg)
+      ? "Wrong email or password."
+      : /already registered|already exists/i.test(msg)
+        ? "That email already has an account. Sign in instead."
+        : /confirm/i.test(msg)
+          ? "Check your email to confirm the account, then sign in."
+          : msg;
+  }
+
+  // Sign in with email + password. On success the auth listener opens the app.
+  function submitSignIn() {
+    var email = byId("authEmail").value.trim(),
+      pass = byId("authPass").value;
+    if (!email) {
+      return showAuthError("Enter your email.");
+    }
+    if (!pass || pass.length < 6) {
+      return showAuthError("Password must be at least 6 characters.");
+    }
+    showAuthError("");
+    setAuthBusy(true);
+    supabaseClient.auth
+      .signInWithPassword({ email: email, password: pass })
+      .then(function (res) {
+        if (res.error) {
+          setAuthBusy(false);
+          showAuthError(authErrorMessage(res.error.message));
+        }
+      })
+      .catch(function () {
+        setAuthBusy(false);
+        showAuthError("No internet. Check your connection and try again.");
+      });
+  }
+
+  // Create an account. Fields are checked top to bottom and the first problem is shown.
+  // The business name and phone are also kept locally so the app can pre-fill them after first login.
+  function submitSignUp() {
+    var first = byId("authFirst").value.trim(),
+      last = byId("authLast").value.trim(),
+      biz = byId("authBiz").value.trim(),
+      phone = byId("authPhone").value.trim(),
+      email = byId("authEmail").value.trim(),
+      loc = byId("authLoc").value.trim(),
+      pass = byId("authPass").value,
+      pass2 = byId("authPass2").value;
+    var problem = !first
+      ? "Enter your first name."
+      : !last
+        ? "Enter your last name."
+        : !biz
+          ? "Enter your business name."
+          : phone.replace(/\D/g, "").length < 9
+            ? "Enter your phone number."
+            : !email
+              ? "Enter your email."
+              : !/^\S+@\S+\.\S+$/.test(email)
+                ? "Enter a valid email address."
+                : !loc
+                  ? "Enter your location."
+                  : pass.length < 8
+                    ? "Password must be at least 8 characters."
+                    : pass !== pass2
+                      ? "Passwords do not match."
+                      : !byId("authTerms").checked
+                        ? "Please agree to the Terms and Conditions to continue."
+                        : "";
+    if (problem) {
+      return showAuthError(problem);
+    }
+    showAuthError("");
+    setAuthBusy(true);
+    writeStorage("tk_pendingName", biz);
+    writeStorage("tk_pendingPhone", phone);
+    supabaseClient.auth
+      .signUp({
+        email: email,
+        password: pass,
+        options: {
+          data: {
+            name: biz,
+            phone: phone,
+            first_name: first,
+            last_name: last,
+            business: biz,
+            location: loc,
+            terms_accepted_at: new Date().toISOString(),
+          },
+        },
+      })
+      .then(function (res) {
+        if (res.error) {
+          setAuthBusy(false);
+          return showAuthError(authErrorMessage(res.error.message));
+        }
+        if (!res.data.session) {
+          // No session yet (e.g. email confirmation is on): send them to sign in.
+          setAuthBusy(false);
+          setAuthMode("in");
+          showAuthNotice("Account created. Now sign in.");
+        }
+      })
+      .catch(function () {
+        setAuthBusy(false);
+        showAuthError("No internet. Check your connection and try again.");
+      });
+  }
+
   // Random per-browser device id, created once.
   function getDeviceId() {
     var e = readStorage("tk_dev", null);
@@ -3097,6 +3463,7 @@ details.rates summary {
       localStorage.removeItem("tk_pendingName");
       localStorage.removeItem("tk_pendingPhone");
     } catch (e) {}
+    seedProfileFromAccount(e);
     (function (e) {
       if (!supabaseClient) {
         return Promise.resolve(true);
@@ -3186,6 +3553,7 @@ details.rates summary {
   // Update last-active, fetch the licence status from Supabase and cache it.
   function syncLicense() {
     if (supabaseClient && currentUser) {
+      getProfile().dirty && pushProfileToAccount();
       var e = state.biz.name || null,
         t = readStorage("tk_dealerphone_" + currentUser.id, "") || null;
       supabaseClient
@@ -3428,16 +3796,10 @@ details.rates summary {
                     })();
                   } else if ("authSwitch" !== t.id && "authForgot" !== t.id) {
                     if ("bizSave" === t.id) {
-                      return (
-                        (state.biz = Object.assign({}, state.biz, {
-                          name: byId("bizNameIn").value.trim() || "My Cars",
-                          tag: byId("bizTagIn").value.trim(),
-                        })),
-                        saveBiz(),
-                        renderBrand(),
-                        currentUser && syncLicense(),
-                        void showToast("Name saved")
-                      );
+                      return void saveProfile();
+                    }
+                    if ("pwSave" === t.id) {
+                      return void changePassword();
                     }
                     var r;
                     if ("dlBackup" !== t.id) {
@@ -3695,63 +4057,7 @@ details.rates summary {
               if ("newpass" === authMode) {
                 return void submitNewPassword();
               }
-              var e = byId("authEmail").value.trim(),
-                t = byId("authPass").value;
-              if (e) {
-                if (!t || t.length < 6) {
-                  showAuthError("Password must be at least 6 characters.");
-                } else {
-                  var a = byId("authName").value.trim(),
-                    n = byId("authPhone").value.trim();
-                  if ("up" === authMode) {
-                    if (!a) {
-                      return void showAuthError("Enter your name or business.");
-                    }
-                    if (n.replace(/\D/g, "").length < 9) {
-                      return void showAuthError("Enter your phone number.");
-                    }
-                  }
-                  showAuthError("");
-                  setAuthBusy(true);
-                  "up" === authMode &&
-                    (writeStorage("tk_pendingName", a), writeStorage("tk_pendingPhone", n));
-                  ("up" === authMode
-                    ? supabaseClient.auth.signUp({
-                        email: e,
-                        password: t,
-                        options: { data: { name: a, phone: n } },
-                      })
-                    : supabaseClient.auth.signInWithPassword({ email: e, password: t })
-                  )
-                    .then(function (e) {
-                      return e.error
-                        ? (setAuthBusy(false),
-                          void showAuthError(
-                            ((t = e.error.message),
-                            (t = String(t || "")),
-                            /invalid login/i.test(t)
-                              ? "Wrong email or password."
-                              : /already registered|already exists/i.test(t)
-                                ? "That email already has an account. Sign in instead."
-                                : /confirm/i.test(t)
-                                  ? "Check your email to confirm the account, then sign in."
-                                  : t),
-                          ))
-                        : "up" !== authMode || e.data.session
-                          ? void 0
-                          : (setAuthBusy(false),
-                            showAuthError("Account created. Now sign in."),
-                            void setAuthMode("in"));
-                      var t;
-                    })
-                    .catch(function () {
-                      setAuthBusy(false);
-                      showAuthError("No internet. Check your connection and try again.");
-                    });
-                }
-              } else {
-                showAuthError("Enter your email.");
-              }
+              "up" === authMode ? submitSignUp() : submitSignIn();
             }
           })());
   });
