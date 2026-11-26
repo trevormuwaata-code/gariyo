@@ -730,65 +730,6 @@ details.rates summary {
   border-color: #f0c6c6;
   font-weight: 600;
 }
-.avatar-row {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  margin-bottom: 14px;
-}
-.avatar {
-  position: relative;
-  flex: none;
-  width: 76px;
-  height: 76px;
-  border-radius: 50%;
-  background: var(--ink);
-  color: #fff;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 26px;
-  font-weight: 500;
-  letter-spacing: 1px;
-  overflow: hidden;
-}
-.avatar img {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-.avatar.busy::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: #14141499;
-}
-.avatar.busy::before {
-  content: "";
-  position: absolute;
-  z-index: 1;
-  top: 50%;
-  left: 50%;
-  width: 24px;
-  height: 24px;
-  margin: -12px 0 0 -12px;
-  border: 3px solid #ffffff55;
-  border-top-color: #fff;
-  border-radius: 50%;
-  animation: avatar-spin 0.8s linear infinite;
-}
-@keyframes avatar-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-.avatar-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
 .authterms {
   display: flex;
   align-items: flex-start;
@@ -1209,30 +1150,6 @@ details.rates summary {
 
   // Page the "Terms and Conditions" checkbox label links to on the sign-up screen. Leave empty until the page exists.
   var TERMS_URL = "";
-
-  // ---------------------------------------------------------------------------
-  // GitHub image storage for profile pictures  (Settings > Account > profile photo)
-  //   owner  : your GitHub username or organisation
-  //   repo   : the repository the photos are stored in (must be PUBLIC so the <img> can load them)
-  //   branch : branch to commit to
-  //   folder : folder inside the repo
-  //   token  : fine-grained personal access token with "Contents: Read and write" on that ONE repo.
-  //            Leave "" to enter it in Settings instead (kept only in this browser's localStorage).
-  //            WARNING: anything written here is public to everyone who opens the app, and GitHub
-  //            auto-revokes tokens it finds in public repositories. See the notes in the README/chat.
-  // ---------------------------------------------------------------------------
-  var GITHUB_STORAGE = {
-    owner: "",
-    repo: "",
-    branch: "main",
-    folder: "avatars",
-    token: "",
-  };
-
-  // Profile picture limits.
-  var AVATAR_TYPES = ["image/jpeg", "image/png", "image/webp"];
-  var AVATAR_MAX_BYTES = 10 * 1024 * 1024; // 10 MB
-  var AVATAR_SIZE_PX = 512; // photos are cropped square and shrunk to this before upload
 
   // Car lifecycle, in the order shown in the filter chips.
   var CAR_STATUSES = ["Sourcing", "In transit", "Available", "Reserved", "Sold"];
@@ -2926,9 +2843,6 @@ details.rates summary {
         dirty: false,
       });
     }
-    if (!readStorage("tk_avatar_" + user.id, null) && meta.avatar_url) {
-      writeStorage("tk_avatar_" + user.id, { url: meta.avatar_url, path: "", sha: "" });
-    }
     if (!readStorage("tk_dealerphone_" + user.id, "") && meta.phone) {
       writeStorage("tk_dealerphone_" + user.id, meta.phone);
     }
@@ -2953,7 +2867,6 @@ details.rates summary {
           phone: getDealerPhone(),
           location: profile.location || "",
           address: profile.address || "",
-          avatar_url: (getAvatar() || {}).url || "",
         },
       })
       .then(function (res) {
@@ -2966,276 +2879,6 @@ details.rates summary {
         setProfile(profile);
         return false;
       });
-  }
-
-  // ---------------------------------------------------------------------------
-  // Profile picture (stored in a GitHub repository through the REST API)
-  // ---------------------------------------------------------------------------
-
-  // The saved picture { url, path, sha } for this user, or null.
-  function getAvatar() {
-    var a = currentUser && readStorage("tk_avatar_" + currentUser.id, null);
-    return a && a.url ? a : null;
-  }
-
-  function setAvatar(avatar) {
-    if (!currentUser) {
-      return;
-    }
-    avatar
-      ? writeStorage("tk_avatar_" + currentUser.id, avatar)
-      : localStorage.removeItem("tk_avatar_" + currentUser.id);
-  }
-
-  // GitHub token: from the constant at the top of the script, otherwise the one saved in Settings.
-  function githubToken() {
-    return GITHUB_STORAGE.token || readStorage("tk_gh_token", "");
-  }
-
-  // Initials for the placeholder circle, from the business name (e.g. "City Motors" -> "CM").
-  function avatarInitials() {
-    var words = profileDisplayName()
-      .replace(/@.*$/, "")
-      .split(/[\s._-]+/)
-      .filter(Boolean);
-    return ((words[0] || "G").charAt(0) + (words.length > 1 ? words[1].charAt(0) : "")).toUpperCase();
-  }
-
-  // Preview shown instantly while an upload is running (object URL of the chosen file).
-  var avatarPreview = "";
-  var avatarBusy = false;
-
-  // Draw the circle plus the Upload / Change / Remove buttons inside Settings.
-  // The initials sit behind the <img>, so if the picture can't load (offline, repo private) they show.
-  function renderAvatarBox() {
-    var box = byId("avatarBox");
-    if (!box) {
-      return;
-    }
-    var saved = getAvatar(),
-      src = avatarPreview || (saved && saved.url) || "";
-    box.innerHTML =
-      '<div class="avatar' +
-      (avatarBusy ? " busy" : "") +
-      '" aria-label="Profile picture"><span>' +
-      escapeHtml(avatarInitials()) +
-      "</span>" +
-      (src ? '<img src="' + escapeHtml(src) + '" alt="" onerror="this.remove()">' : "") +
-      '</div><div class="avatar-actions"><button type="button" class="btn small" id="avatarPick"' +
-      (avatarBusy ? " disabled" : "") +
-      ">" +
-      (avatarBusy ? "Uploading…" : saved || avatarPreview ? "Change Photo" : "Upload Photo") +
-      "</button>" +
-      (saved && !avatarBusy
-        ? '<button type="button" class="btn small danger" id="avatarRemove">Remove Photo</button>'
-        : "") +
-      "</div>";
-  }
-
-  // Message line under the picture (red for errors, green when ok = true).
-  function showAvatarMessage(msg, ok) {
-    var el = byId("avatarErr");
-    if (el) {
-      el.textContent = msg || "";
-      el.classList.toggle("show", !!msg);
-      el.classList.toggle("ok", !!(msg && ok));
-    }
-  }
-
-  // Crop to a centred square, shrink to AVATAR_SIZE_PX and re-encode as JPEG. A 10 MB phone photo
-  // becomes about 50 KB, which is quick on mobile data and keeps the repository small.
-  function prepareAvatar(file) {
-    return new Promise(function (resolve, reject) {
-      var objectUrl = URL.createObjectURL(file),
-        img = new Image();
-      img.onload = function () {
-        var canvas = document.createElement("canvas"),
-          side = Math.min(img.width, img.height),
-          ctx;
-        canvas.width = canvas.height = AVATAR_SIZE_PX;
-        ctx = canvas.getContext("2d");
-        ctx.fillStyle = "#fff";
-        ctx.fillRect(0, 0, AVATAR_SIZE_PX, AVATAR_SIZE_PX);
-        ctx.drawImage(
-          img,
-          (img.width - side) / 2,
-          (img.height - side) / 2,
-          side,
-          side,
-          0,
-          0,
-          AVATAR_SIZE_PX,
-          AVATAR_SIZE_PX,
-        );
-        URL.revokeObjectURL(objectUrl);
-        canvas.toBlob(
-          function (blob) {
-            blob ? resolve(blob) : reject(new Error("encode"));
-          },
-          "image/jpeg",
-          0.85,
-        );
-      };
-      img.onerror = function () {
-        URL.revokeObjectURL(objectUrl);
-        reject(new Error("decode"));
-      };
-      img.src = objectUrl;
-    });
-  }
-
-  // Blob -> Base64 text without the "data:image/...;base64," prefix (what the GitHub API wants).
-  function blobToBase64(blob) {
-    return new Promise(function (resolve, reject) {
-      var reader = new FileReader();
-      reader.onload = function () {
-        resolve(String(reader.result).split(",")[1] || "");
-      };
-      reader.onerror = function () {
-        reject(new Error("read"));
-      };
-      reader.readAsDataURL(blob);
-    });
-  }
-
-  // Call the GitHub "repository contents" API (PUT = create a file, DELETE = remove one).
-  function githubContents(method, path, body) {
-    var g = GITHUB_STORAGE;
-    return fetch(
-      "https://api.github.com/repos/" + g.owner + "/" + g.repo + "/contents/" + path,
-      {
-        method: method,
-        headers: {
-          Accept: "application/vnd.github+json",
-          Authorization: "Bearer " + githubToken(),
-          "Content-Type": "application/json",
-          "X-GitHub-Api-Version": "2022-11-28",
-        },
-        body: JSON.stringify(body),
-      },
-    ).then(function (res) {
-      return res
-        .json()
-        .catch(function () {
-          return {};
-        })
-        .then(function (json) {
-          if (!res.ok) {
-            var err = new Error(json.message || "HTTP " + res.status);
-            err.status = res.status;
-            throw err;
-          }
-          return json;
-        });
-    });
-  }
-
-  // Readable text for a failed upload.
-  function avatarErrorMessage(err) {
-    var s = err && err.status;
-    return s === 401
-      ? "GitHub rejected the access token. Check it and try again."
-      : s === 403 || s === 404
-        ? "GitHub says no access, or the repository was not found. Check the owner, repo and token."
-        : s === 422
-          ? "GitHub could not save the file. Try again."
-          : err && (err.message === "decode" || err.message === "encode")
-            ? "That image could not be read. Try another photo."
-            : "Could not upload. Check your internet connection and try again.";
-  }
-
-  // The user picked a file: validate it, preview it at once, upload it, remember the URL.
-  function handleAvatarFile(file) {
-    var g = GITHUB_STORAGE;
-    showAvatarMessage("");
-    if (!file) {
-      return;
-    }
-    if (AVATAR_TYPES.indexOf(file.type) < 0) {
-      return showAvatarMessage("Use a JPG, PNG or WEBP photo.");
-    }
-    if (file.size > AVATAR_MAX_BYTES) {
-      return showAvatarMessage("That photo is too big. The limit is 10 MB.");
-    }
-    if (!currentUser) {
-      return showAvatarMessage("Sign in to change your photo.");
-    }
-    avatarPreview = URL.createObjectURL(file);
-    if (!g.owner || !g.repo || !githubToken()) {
-      renderAvatarBox();
-      avatarPreview = "";
-      setTimeout(renderAvatarBox, 1200);
-      return showAvatarMessage(
-        "Photo storage is not set up yet. Add the GitHub owner and repo in the code and a token in Settings.",
-      );
-    }
-    var previous = getAvatar();
-    avatarBusy = true;
-    renderAvatarBox();
-    prepareAvatar(file)
-      .then(function (blob) {
-        return blobToBase64(blob);
-      })
-      .then(function (base64) {
-        var path =
-          g.folder.replace(/^\/+|\/+$/g, "") +
-          "/avatar-" +
-          Date.now() +
-          "-" +
-          Math.random().toString(36).slice(2, 6) +
-          ".jpg";
-        return githubContents("PUT", path, {
-          message: "Add profile picture",
-          content: base64,
-          branch: g.branch,
-        });
-      })
-      .then(function (json) {
-        var c = json.content || {};
-        setAvatar({ url: c.download_url, path: c.path, sha: c.sha });
-        avatarBusy = false;
-        avatarPreview = "";
-        renderAvatarBox();
-        showAvatarMessage("Profile picture updated.", true);
-        showToast("Profile picture updated");
-        pushProfileToAccount();
-        // Tidy up: delete the previous picture from the repository (failure here is harmless).
-        previous &&
-          previous.path &&
-          previous.sha &&
-          githubContents("DELETE", previous.path, {
-            message: "Remove old profile picture",
-            sha: previous.sha,
-            branch: g.branch,
-          }).catch(function () {});
-      })
-      .catch(function (err) {
-        avatarBusy = false;
-        avatarPreview = "";
-        renderAvatarBox();
-        showAvatarMessage(avatarErrorMessage(err));
-      });
-  }
-
-  // Remove the picture: delete the file from GitHub if possible, and always clear it in the app.
-  function removeAvatar() {
-    var saved = getAvatar(),
-      g = GITHUB_STORAGE;
-    if (!saved) {
-      return;
-    }
-    setAvatar(null);
-    renderAvatarBox();
-    showAvatarMessage("Profile picture removed.", true);
-    pushProfileToAccount();
-    saved.path &&
-      saved.sha &&
-      githubToken() &&
-      githubContents("DELETE", saved.path, {
-        message: "Remove profile picture",
-        sha: saved.sha,
-        branch: g.branch,
-      }).catch(function () {});
   }
 
   // Settings: save business name, tagline, phone, location and address.
@@ -3408,12 +3051,7 @@ details.rates summary {
             APP_NAME +
             "</a>"
           : "") +
-        '</div><h3>Business profile</h3><div class="card"><div class="avatar-row" id="avatarBox"></div><input type="file" id="avatarFile" accept="image/jpeg,image/png,image/webp" hidden><div class="autherr" id="avatarErr"></div>' +
-        (GITHUB_STORAGE.token
-          ? ""
-          : '<details class="rates" style="margin-bottom:10px"><summary>Photo storage setup</summary><label class="fld"><span>GitHub access token</span><input id="ghToken" type="password" autocomplete="off" placeholder="' +
-            (githubToken() ? "Token saved. Paste a new one to replace it" : "github_pat_…") +
-            '"></label><button type="button" class="btn small ghost" id="ghTokenSave">Save token</button></details>') +
+        '</div><h3>Business profile</h3><div class="card">' +
         '<label class="fld"><span>Business name</span><input id="bizNameIn" value="' +
         escapeHtml(state.biz.name) +
         '" maxlength="28"></label><label class="fld"><span>Tagline (optional)</span><input id="bizTagIn" value="' +
@@ -3451,7 +3089,6 @@ details.rates summary {
         (o ? "ghost" : "") +
         '" id="dlBackup">Download backup</button></div><label class="fld" style="margin-top:14px"><span>Restore from a backup file</span><input type="file" id="restoreFile" accept=".json,application/json"></label><div id="restoreBox"></div></div><button type="button" class="btn full ghost" id="logoutBtn">Log out</button><div class="powered">POWERED BY GARIYO</div><p class="note" style="text-align:center;margin:2px 0 0">© 2026 Gariyo. All rights reserved. Licensed software.</p>',
     );
-    renderAvatarBox();
   }
 
   // Backup payload: business, cars, buyers, deals and rates (photos are not included).
@@ -4168,21 +3805,6 @@ details.rates summary {
                     if ("bizSave" === t.id) {
                       return void saveProfile();
                     }
-                    if ("avatarPick" === t.id) {
-                      return void byId("avatarFile").click();
-                    }
-                    if ("avatarRemove" === t.id) {
-                      return void removeAvatar();
-                    }
-                    if ("ghTokenSave" === t.id) {
-                      var token = byId("ghToken").value.trim();
-                      return token
-                        ? (writeStorage("tk_gh_token", token),
-                          (byId("ghToken").value = ""),
-                          byId("ghToken").setAttribute("placeholder", "Token saved. Paste a new one to replace it"),
-                          void showToast("Token saved"))
-                        : void showToast("Paste the token first.");
-                    }
                     if ("pwSave" === t.id) {
                       return void changePassword();
                     }
@@ -4450,10 +4072,6 @@ details.rates summary {
   // File inputs (restore backup, car photos) and calculator number formatting.
   document.addEventListener("change", function (e) {
     var t = e.target;
-    if ("avatarFile" === t.id) {
-      handleAvatarFile(t.files && t.files[0]);
-      return void (t.value = "");
-    }
     if ("restoreFile" !== t.id) {
       if ("photoIn" === t.id) {
         return (
